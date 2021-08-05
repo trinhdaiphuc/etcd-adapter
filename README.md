@@ -9,7 +9,7 @@ ETCD adapter is the policy storage adapter for [Casbin](https://github.com/casbi
 
 ## Installation
 ```bash
-go get github.com/sebastianliu/etcd-adapter
+go get -u github.com/trinhdaiphuc/etcd-adapter
 ```
 
 ## Sample Example
