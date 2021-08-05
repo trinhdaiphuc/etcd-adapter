@@ -21,6 +21,8 @@ func main() {
 	// Load the policy from ETCD.
 	e.LoadPolicy()
 
+	e.EnableAutoSave(true)
+
 	// Check the permission.
 	result, err := e.Enforce("alice", "data1", "read")
 
