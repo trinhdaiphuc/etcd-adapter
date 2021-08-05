@@ -13,22 +13,22 @@ import (
 	"strings"
 	"time"
 
-	"github.com/casbin/casbin/model"
-	"github.com/casbin/casbin/persist"
+	"github.com/casbin/casbin/v2/model"
+	"github.com/casbin/casbin/v2/persist"
 	client "github.com/coreos/etcd/clientv3"
 )
 
 const (
-	// DialTimeout is the timeout for failing to establish a connection.
+	// DIALTIMEOUT is the timeout for failing to establish a connection.
 	DIALTIMEOUT = 5 * time.Second
 
-	// DialKeepAliveTime is the time after which client pings the server to see if
+	// DIALKEEPALIVETIME is the time after which client pings the server to see if
 	// transport is alive.
 	DIALKEEPALIVETIME = 5 * time.Second
 
 	REQUESTTIMEOUT = 5 * time.Second
 
-	// DialKeepAliveTimeout is the time that the client waits for a response for the
+	// DIALKEEPALIVETIMEOUT is the time that the client waits for a response for the
 	// keep-alive probe. If the response is not received in this time, the connection is closed.
 	DIALKEEPALIVETIMEOUT = 10 * time.Second
 
@@ -53,24 +53,30 @@ type CasbinRule struct {
 // Adapter represents the ETCD adapter for policy storage.
 type Adapter struct {
 	etcdEndpoints []string
+	etcdUsername  string
+	etcdPassword  string
 	key           string
 
 	// etcd connection client
 	conn *client.Client
 }
 
-func NewAdapter(etcdEndpoints []string, key string) *Adapter {
-	return newAdapter(etcdEndpoints, key)
+var _ persist.Adapter = (*Adapter)(nil)
+
+func NewAdapter(opts ...AdapterOption) *Adapter {
+	return newAdapter(opts...)
 }
 
-func newAdapter(etcdEndpoints []string, key string) *Adapter {
-	if key == "" {
-		key = DEFAULT_KEY
-	}
+func newAdapter(opts ...AdapterOption) *Adapter {
 	a := &Adapter{
-		etcdEndpoints: etcdEndpoints,
-		key:           key,
+		etcdEndpoints: []string{"localhost:2379"},
+		key:           DEFAULT_KEY,
 	}
+
+	for _, opt := range opts {
+		opt(a)
+	}
+
 	a.connect()
 
 	// Call the destructor when the object is released.
@@ -82,6 +88,8 @@ func newAdapter(etcdEndpoints []string, key string) *Adapter {
 func (a *Adapter) connect() {
 	etcdConf := client.Config{
 		Endpoints:            a.etcdEndpoints,
+		Username:             a.etcdUsername,
+		Password:             a.etcdPassword,
 		DialTimeout:          DIALTIMEOUT,
 		DialKeepAliveTimeout: DIALKEEPALIVETIMEOUT,
 		DialKeepAliveTime:    DIALKEEPALIVETIME,
@@ -290,6 +298,33 @@ func (a *Adapter) RemoveFilteredPolicy(sec string, ptype string, fieldIndex int,
 	filter := a.constructFilter(rule)
 
 	return a.removeFilteredPolicy(filter)
+}
+
+// AddPolicies adds policy rules to the storage.
+// This is part of the Auto-Save feature.
+func (a *Adapter) AddPolicies(sec string, ptype string, rules [][]string) error {
+	var err error
+	for _, line := range rules {
+		rule := a.convertRule(ptype, line)
+		ctx, cancel := context.WithTimeout(context.Background(), REQUESTTIMEOUT)
+		defer cancel()
+		ruleData, _ := json.Marshal(rule)
+		_, err = a.conn.Put(ctx, a.constructPath(rule.Key), string(ruleData))
+	}
+	return err
+}
+
+// RemovePolicies removes policy rules from the storage.
+// This is part of the Auto-Save feature.
+func (a *Adapter) RemovePolicies(sec string, ptype string, rules [][]string) error {
+	var err error
+	for _, line := range rules {
+		rule := a.convertRule(ptype, line)
+		ctx, cancel := context.WithTimeout(context.Background(), REQUESTTIMEOUT)
+		defer cancel()
+		_, err = a.conn.Delete(ctx, a.constructPath(rule.Key))
+	}
+	return err
 }
 
 func (a *Adapter) constructFilter(rule CasbinRule) string {
